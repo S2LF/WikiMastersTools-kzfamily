@@ -181,8 +181,15 @@
       }
 
       function registerCards(cards) {
+        const seenIds = new Set();
+
         for (const meta of cards) {
           if (!meta?.id || !meta?.title) continue;
+
+          // Plusieurs exemplaires d'une même carte dans un lot : on cumule nombre, favori et étiquettes.
+          const sameBatch = seenIds.has(meta.id) ? cardMetaById.get(meta.id) : null;
+          seenIds.add(meta.id);
+
           const normalized = {
             ...cardMetaById.get(meta.id),
             id: meta.id,
@@ -196,6 +203,28 @@
               ? [...meta.ownedCardIds]
               : (cardMetaById.get(meta.id)?.ownedCardIds || [])
           };
+
+          if (sameBatch) {
+            normalized.ownedCardIds = [...new Set([
+              ...(sameBatch.ownedCardIds || []),
+              ...normalized.ownedCardIds
+            ])];
+            normalized.ownedCardId = sameBatch.ownedCardId || normalized.ownedCardId;
+            normalized.count = Math.max(
+              sameBatch.count || 1,
+              normalized.count,
+              normalized.ownedCardIds.length
+            );
+          }
+
+          // Seule la collection fournit ces champs : les autres sources ne doivent pas les effacer.
+          if (typeof meta.starred === 'boolean') {
+            normalized.starred = meta.starred || Boolean(sameBatch?.starred);
+          }
+          if (Array.isArray(meta.tags)) {
+            normalized.tags = [...new Set([...(sameBatch?.tags || []), ...meta.tags])];
+          }
+
           cardMetaById.set(normalized.id, normalized);
           idByTitle.set(normalizeTitle(normalized.title), normalized.id);
         }

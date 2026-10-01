@@ -18,6 +18,28 @@
         return remaining ? `${hours} h ${remaining} min` : `${hours} h`;
       }
 
+      function requestListing({ button, row, amount, duration, ownedCardId, allowStarred = false }) {
+        const requestId = `listing:${row.id}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+
+        button.disabled = true;
+        button.dataset.state = 'pending';
+        button.textContent = ownedCardId ? 'Mise en vente…' : 'Recherche ID…';
+
+        pendingMarketplaceListings.set(requestId, { button, row, amount, duration });
+
+        window.dispatchEvent(new CustomEvent('wm-average-create-listing', {
+          detail: {
+            requestId,
+            ownedCardId,
+            catalogueCardId: row.id,
+            title: row.title,
+            baseAmount: amount,
+            durationMinutes: duration,
+            allowStarred
+          }
+        }));
+      }
+
       async function openRankingModal() {
         const storedCollection = storageGet(ALL_COLLECTION_KEY);
         const collectionEntry = storedCollection[ALL_COLLECTION_KEY];
@@ -193,6 +215,53 @@
 
         saleControls.append(priceField, durationField, hint);
 
+        const rowTags = (row) => (Array.isArray(row.tags) ? row.tags : []);
+
+        // Le rang affiché reste celui du classement complet, même une fois filtré.
+        const rankedRows = rows.map((row, index) => ({ row, index }));
+        let visibleRows = rankedRows;
+
+        const allTags = [...new Set(rows.flatMap(rowTags))]
+          .sort((a, b) => a.localeCompare(b, 'fr'));
+        const hasStarred = rows.some((row) => row.starred);
+
+        const filters = document.createElement('div');
+        filters.className = 'wm-ranking-filters';
+
+        const starredFilter = document.createElement('label');
+        starredFilter.className = 'wm-ranking-filter-starred';
+
+        const starredInput = document.createElement('input');
+        starredInput.type = 'checkbox';
+
+        const starredText = document.createElement('span');
+        starredText.textContent = '★ Favoris uniquement';
+
+        starredFilter.append(starredInput, starredText);
+
+        const tagSelect = document.createElement('select');
+        tagSelect.className = 'wm-ranking-filter-tag';
+        tagSelect.setAttribute('aria-label', 'Filtrer par étiquette');
+
+        const allTagsOption = document.createElement('option');
+        allTagsOption.value = '';
+        allTagsOption.textContent = 'Toutes les étiquettes';
+        tagSelect.append(allTagsOption);
+
+        for (const tag of allTags) {
+          const option = document.createElement('option');
+          option.value = tag;
+          option.textContent = tag;
+          tagSelect.append(option);
+        }
+
+        const filterCount = document.createElement('span');
+        filterCount.className = 'wm-ranking-filter-count';
+
+        if (hasStarred) filters.append(starredFilter);
+        if (allTags.length) filters.append(tagSelect);
+        filters.append(filterCount);
+
         const list = document.createElement('div');
         list.className = 'wm-ranking-list';
 
@@ -239,10 +308,32 @@
           name.className = 'wm-ranking-title';
           name.textContent = row.title;
 
+          if (row.starred) {
+            const star = document.createElement('span');
+            star.className = 'wm-ranking-star';
+            star.textContent = '★';
+            star.title = 'Carte en favori';
+            name.prepend(star);
+          }
+
           const meta = document.createElement('div');
           meta.className = 'wm-ranking-meta';
-          const countText = row.count > 1 ? ` • ×${row.count}` : '';
-          meta.textContent = `${row.rarity || '—'}${countText}`;
+          meta.textContent = row.rarity || '—';
+
+          if (row.count > 1) {
+            const count = document.createElement('span');
+            count.className = 'wm-ranking-count';
+            count.textContent = `×${row.count}`;
+            count.title = `${row.count} exemplaires possédés`;
+            meta.append(count);
+          }
+
+          for (const tag of rowTags(row)) {
+            const chip = document.createElement('span');
+            chip.className = 'wm-ranking-tag';
+            chip.textContent = tag;
+            meta.append(chip);
+          }
 
           info.append(name, meta);
 
@@ -276,30 +367,13 @@
               return;
             }
 
-            const ownedCardId = row.ownedCardId || row.ownedCardIds?.[0] || null;
-            const requestId = `listing:${row.id}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+            // Le favori est connu par carte, pas par exemplaire : pour une carte en favori,
+            // on laisse le bridge choisir un exemplaire non favori s'il en existe un.
+            const ownedCardId = row.starred
+              ? null
+              : (row.ownedCardId || row.ownedCardIds?.[0] || null);
 
-            sellButton.disabled = true;
-            sellButton.dataset.state = 'pending';
-            sellButton.textContent = ownedCardId ? 'Mise en vente…' : 'Recherche ID…';
-
-            pendingMarketplaceListings.set(requestId, {
-              button: sellButton,
-              row,
-              amount,
-              duration
-            });
-
-            window.dispatchEvent(new CustomEvent('wm-average-create-listing', {
-              detail: {
-                requestId,
-                ownedCardId,
-                catalogueCardId: row.id,
-                title: row.title,
-                baseAmount: amount,
-                durationMinutes: duration
-              }
-            }));
+            requestListing({ button: sellButton, row, amount, duration, ownedCardId });
           });
 
           item.append(rank, thumb, info, price);
@@ -311,28 +385,60 @@
         sentinel.className = 'wm-ranking-sentinel';
 
         const renderNextChunk = () => {
-          if (renderedCount >= rows.length) {
+          if (renderedCount >= visibleRows.length) {
             sentinel.remove();
             return;
           }
 
           const fragment = document.createDocumentFragment();
-          const end = Math.min(renderedCount + PAGE_SIZE, rows.length);
+          const end = Math.min(renderedCount + PAGE_SIZE, visibleRows.length);
 
-          for (let index = renderedCount; index < end; index += 1) {
-            fragment.append(createRankingRow(rows[index], index));
+          for (let position = renderedCount; position < end; position += 1) {
+            const { row, index } = visibleRows[position];
+            fragment.append(createRankingRow(row, index));
           }
 
           renderedCount = end;
           sentinel.remove();
           list.append(fragment);
 
-          if (renderedCount < rows.length) {
+          if (renderedCount < visibleRows.length) {
             list.append(sentinel);
           }
 
           refreshSaleButtons();
         };
+
+        const applyFilters = () => {
+          const starredOnly = starredInput.checked;
+          const tag = tagSelect.value;
+
+          visibleRows = rankedRows.filter(({ row }) => (
+            (!starredOnly || row.starred) &&
+            (!tag || rowTags(row).includes(tag))
+          ));
+
+          filterCount.textContent = starredOnly || tag
+            ? `${visibleRows.length} / ${rows.length} cartes`
+            : '';
+
+          renderedCount = 0;
+          list.replaceChildren();
+          list.scrollTop = 0;
+
+          if (!visibleRows.length) {
+            const empty = document.createElement('div');
+            empty.className = 'wm-ranking-empty';
+            empty.textContent = 'Aucune carte ne correspond à ces filtres.';
+            list.append(empty);
+            return;
+          }
+
+          renderNextChunk();
+        };
+
+        starredInput.addEventListener('change', applyFilters);
+        tagSelect.addEventListener('change', applyFilters);
 
         const observer = new IntersectionObserver((entries) => {
           if (entries.some((entry) => entry.isIntersecting)) {
@@ -348,9 +454,7 @@
         durationInput.addEventListener('change', refreshSaleButtons);
 
         renderNextChunk();
-        if (renderedCount < rows.length) {
-          observer.observe(sentinel);
-        }
+        observer.observe(sentinel);
 
         const close = () => {
           observer.disconnect();
@@ -365,6 +469,7 @@
         modal.append(header);
         if (cacheNotice) modal.append(cacheNotice);
         if (salesEnabled) modal.append(saleControls);
+        if (hasStarred || allTags.length) modal.append(filters);
         modal.append(list);
         overlay.append(modal);
         document.body.append(overlay);
@@ -392,6 +497,35 @@
 
         const { button, row, amount, duration } = pending;
         if (!button?.isConnected) return;
+
+        if (detail.needsStarredConfirmation) {
+          button.textContent = 'Confirmation…';
+
+          runtime.modalUi.showConfirmModal(
+            'Vendre ton exemplaire favori ?',
+            `« ${row.title} » : le seul exemplaire disponible est en favori. Le mettre en vente quand même ?`,
+            { confirmLabel: 'Vendre le favori', cancelLabel: 'Garder la carte' }
+          ).then((confirmed) => {
+            if (!button.isConnected) return;
+
+            if (!confirmed) {
+              delete button.dataset.state;
+              button.disabled = false;
+              button.textContent = 'Mettre en vente';
+              return;
+            }
+
+            requestListing({
+              button,
+              row,
+              amount,
+              duration,
+              ownedCardId: detail.ownedCardId,
+              allowStarred: true
+            });
+          });
+          return;
+        }
 
         if (detail.ok) {
           if (detail.ownedCardId) {

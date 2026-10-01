@@ -222,7 +222,6 @@
               const existing = deduped.get(card.id);
 
               if (existing) {
-                existing.count = Math.max(existing.count || 1, card.count || 1);
                 const ownershipIds = new Set([
                   ...(Array.isArray(existing.ownedCardIds) ? existing.ownedCardIds : []),
                   ...(Array.isArray(card.ownedCardIds) ? card.ownedCardIds : []),
@@ -230,9 +229,22 @@
                 ].filter(Boolean));
 
                 existing.ownedCardIds = [...ownershipIds];
+                // Chaque exemplaire est une entrée distincte avec count = 1.
+                existing.count = Math.max(
+                  existing.count || 1,
+                  card.count || 1,
+                  existing.ownedCardIds.length
+                );
                 if (!existing.ownedCardId && existing.ownedCardIds.length) {
                   existing.ownedCardId = existing.ownedCardIds[0];
                 }
+
+                // Favori et étiquettes sont portés par chaque exemplaire possédé.
+                existing.starred = Boolean(existing.starred || card.starred);
+                existing.tags = [...new Set([
+                  ...(Array.isArray(existing.tags) ? existing.tags : []),
+                  ...(Array.isArray(card.tags) ? card.tags : [])
+                ])];
               } else {
                 deduped.set(card.id, { ...card });
               }

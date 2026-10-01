@@ -11,6 +11,20 @@
       let globalCardsRequestTemplate = null;
       let supabaseRequestTemplate = null;
 
+      // Les étiquettes peuvent arriver sous forme de chaînes ou d'objets : on ne garde que leur nom.
+      function mapTags(tags) {
+        if (!Array.isArray(tags)) return [];
+
+        const names = tags.map((tag) => {
+          const raw = typeof tag === 'string'
+            ? tag
+            : (tag?.name ?? tag?.label ?? tag?.title ?? tag?.tag ?? '');
+          return typeof raw === 'string' ? raw.trim() : '';
+        }).filter(Boolean);
+
+        return [...new Set(names)];
+      }
+
       function mapEntry(entry) {
         const card = entry && entry.card;
         const id = (entry && entry.card_id) || (card && card.id);
@@ -26,7 +40,9 @@
           rarity: card?.rarity || null,
           imageUrl: card?.image_url || null,
           wikipediaUrl: card?.wikipedia_url || null,
-          count: Number(entry?.count) || 1
+          count: Number(entry?.count) || 1,
+          starred: entry?.starred === true,
+          tags: mapTags(entry?.tags)
         };
       }
 
