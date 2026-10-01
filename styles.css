@@ -327,6 +327,14 @@
   line-height: 1.4;
 }
 
+.wm-ranking-tag-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-radius: 50%;
+}
+
 .wm-ranking-tag {
   display: inline-block;
   margin-left: 6px;
@@ -375,6 +383,18 @@
   font: inherit;
   font-size: 12px;
   cursor: pointer;
+}
+
+/* Sans ça, la liste déroulante native garde un fond clair avec le texte clair hérité. */
+.wm-modal select {
+  color-scheme: dark;
+}
+
+.wm-modal select option {
+  background: #111512;
+  color: #f8fafc;
+  /* La liste native n'hérite pas de la police du site et retombe sur une serif. */
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 .wm-ranking-filter-tag:focus {

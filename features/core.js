@@ -180,6 +180,28 @@
         console.error(`[WM Average] ${scope}`, error);
       }
 
+      // Étiquettes { id, name, color } fusionnées sans doublon (par id, ou par nom à défaut).
+      function mergeTags(...lists) {
+        const byKey = new Map();
+
+        for (const list of lists) {
+          if (!Array.isArray(list)) continue;
+
+          for (const raw of list) {
+            const tag = typeof raw === 'string' ? { name: raw } : raw;
+            const name = String(tag?.name || '').trim();
+            if (!name) continue;
+
+            const id = tag.id ? String(tag.id) : null;
+            const merged = { id, name, color: tag.color || null };
+            if (Number.isFinite(tag.cardCount)) merged.cardCount = tag.cardCount;
+            byKey.set(id || name, merged);
+          }
+        }
+
+        return [...byKey.values()];
+      }
+
       function registerCards(cards) {
         const seenIds = new Set();
 
@@ -222,7 +244,7 @@
             normalized.starred = meta.starred || Boolean(sameBatch?.starred);
           }
           if (Array.isArray(meta.tags)) {
-            normalized.tags = [...new Set([...(sameBatch?.tags || []), ...meta.tags])];
+            normalized.tags = mergeTags(sameBatch?.tags, meta.tags);
           }
 
           cardMetaById.set(normalized.id, normalized);
@@ -259,7 +281,7 @@
         isTradesPage, isGlobalCollectionPage, isGuildPage, isLastPullCardVisible, normalizeTitle,
         cacheKey, readLocalValue, writeLocalValue, storageGet, storageSet,
         isCacheEntryValid, cleanupPriceCacheOnceDaily, isContextInvalidatedError,
-        reportError, registerCards, createSponsorNote
+        reportError, mergeTags, registerCards, createSponsorNote
       };
     }
   };
